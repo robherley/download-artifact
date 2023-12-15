@@ -3,7 +3,7 @@ description: 'Download a build artifact that was previously uploaded in the work
 author: 'GitHub'
 inputs:
   name:
-    description: 'Name of the artifact to download. If unspecified, all artifacts for the run are downloaded'
+    description: 'Name pattern of the artifact to download. If unspecified, all artifacts for the run are downloaded.'
     required: false
   path:
     description: 'Destination path. Supports basic tilde expansion. Defaults to $GITHUB_WORKSPACE'
@@ -23,6 +23,13 @@ inputs:
       If github-token is specified, this is the run that artifacts will be downloaded from.'
     required: false
     default: ${{ github.run_id }}
+  merge-multiple:
+    description: 'When multiple artifacts are matched, this changes the behavior of the destination directories.
+      If true, the downloaded artifacts will be merged into the path specified by path.
+      If false, the downloaded artifacts will be extracted into a directory named after the artifact.
+      Single artifact downloads will always be at path.'
+    required: false
+    default: 'false'
 outputs:
   download-path:
     description: 'Path of artifact download'

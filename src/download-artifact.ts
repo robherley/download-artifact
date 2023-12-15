@@ -2,7 +2,9 @@ import * as os from 'os'
 import * as path from 'path'
 import * as core from '@actions/core'
 import artifactClient from '@actions/artifact'
-import type {Artifact, FindOptions} from '@actions/artifact'
+import type {FindOptions} from '@actions/artifact'
+import {Minimatch} from 'minimatch'
+
 import {Inputs, Outputs} from './constants'
 
 const PARALLEL_DOWNLOADS = 5
@@ -20,7 +22,8 @@ async function run(): Promise<void> {
     path: core.getInput(Inputs.Path, {required: false}),
     token: core.getInput(Inputs.GitHubToken, {required: false}),
     repository: core.getInput(Inputs.Repository, {required: false}),
-    runID: parseInt(core.getInput(Inputs.RunID, {required: false}))
+    runID: parseInt(core.getInput(Inputs.RunID, {required: false})),
+    mergeMultiple: core.getBooleanInput(Inputs.MergeMultiple, {required: false})
   }
 
   if (!inputs.path) {
@@ -31,7 +34,6 @@ async function run(): Promise<void> {
     inputs.path = inputs.path.replace('~', os.homedir())
   }
 
-  const isSingleArtifactDownload = !!inputs.name
   const resolvedPath = path.resolve(inputs.path)
   core.debug(`Resolved path is ${resolvedPath}`)
 
@@ -52,51 +54,28 @@ async function run(): Promise<void> {
     }
   }
 
-  let artifacts: Artifact[] = []
+  let {artifacts} = await artifactClient.listArtifacts({
+    latest: true,
+    ...options
+  })
 
-  if (isSingleArtifactDownload) {
-    core.info(`Downloading single artifact`)
+  core.debug(`Found ${artifacts.length} total artifacts`)
 
-    const {artifact: targetArtifact} = await artifactClient.getArtifact(
-      inputs.name,
-      options
-    )
-
-    if (!targetArtifact) {
-      throw new Error(`Artifact '${inputs.name}' not found`)
-    }
-
-    core.debug(
-      `Found named artifact '${inputs.name}' (ID: ${targetArtifact.id}, Size: ${targetArtifact.size})`
-    )
-
-    artifacts = [targetArtifact]
-  } else {
-    core.info(
-      `No input name specified, downloading all artifacts. Extra directory with the artifact name will be created for each download`
-    )
-
-    const listArtifactResponse = await artifactClient.listArtifacts({
-      latest: true,
-      ...options
-    })
-
-    if (listArtifactResponse.artifacts.length === 0) {
-      throw new Error(
-        `No artifacts found for run '${inputs.runID}' in '${inputs.repository}'`
-      )
-    }
-
-    core.debug(`Found ${listArtifactResponse.artifacts.length} artifacts`)
-    artifacts = listArtifactResponse.artifacts
+  if (inputs.name) {
+    const matcher = new Minimatch(inputs.name)
+    artifacts = artifacts.filter(artifact => matcher.match(artifact.name))
+    core.debug(`Filtered to ${artifacts.length} artifacts`)
   }
+
+  const isSingleArtifactDownload = artifacts.length === 1
 
   const downloadPromises = artifacts.map(artifact =>
     artifactClient.downloadArtifact(artifact.id, {
       ...options,
-      path: isSingleArtifactDownload
-        ? resolvedPath
-        : path.join(resolvedPath, artifact.name)
+      path:
+        isSingleArtifactDownload || inputs.mergeMultiple
+          ? resolvedPath
+          : path.join(resolvedPath, artifact.name)
     })
   )
 
